@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { createContext, createElement, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
 import { useStreamParser } from './useStreamParser';
 import { useApiRouter } from './useApiRouter';
 import { applyParsedToChat, aggregateEvents } from '../sillytavern/variables';
@@ -33,7 +33,7 @@ import { createDefaultPreset } from '../sillytavern/types';
 
 const db = getDatabase();
 
-export function useSillytavern() {
+function useSillytavernLogic() {
   // ---- core state ----
   const [settings, setSettings] = useState<AppSettings | null>(null);
   const [presets, setPresets] = useState<ChatPreset[]>([]);
@@ -77,11 +77,34 @@ export function useSillytavern() {
         getChats(),
       ]);
       if (cancelled) return;
+      const loadedSettings = s ? { ...DEFAULT_SETTINGS, ...s } : { ...DEFAULT_SETTINGS };
       setLorebooks(l);
       setPresets(p);
-      setSettings(s ? { ...DEFAULT_SETTINGS, ...s } : { ...DEFAULT_SETTINGS });
-      setChats(c);
-      if (c.length > 0) setActiveChatId(c[0].id);
+      setSettings(loadedSettings);
+
+      let loadedChats = c;
+      let activeId: string | null = null;
+      if (c.length > 0) {
+        activeId = c[0].id;
+      } else {
+        const chat: ChatSession = {
+          id: crypto.randomUUID(),
+          name: `${loadedSettings.characterName} - 新对话 1`,
+          messages: [],
+          characterName: loadedSettings.characterName,
+          userName: loadedSettings.userName,
+          presetId: loadedSettings.activePresetId ?? p[0]?.id ?? null,
+          lorebookIds: [...(loadedSettings.activeLorebookIds ?? [])],
+          variables: {},
+          createdAt: Date.now(),
+          updatedAt: Date.now(),
+        };
+        await saveChat(chat);
+        loadedChats = [chat];
+        activeId = chat.id;
+      }
+      setChats(loadedChats);
+      setActiveChatId(activeId);
       setInitialized(true);
     })();
     return () => {
@@ -329,7 +352,8 @@ export function useSillytavern() {
         });
       } catch (e) {
         parser.reset();
-        throw e;
+        showToast('发送失败: ' + (e instanceof Error ? e.message : String(e)));
+        return;
       }
 
       const { events, parsed } = parser.finish();
@@ -359,7 +383,7 @@ export function useSillytavern() {
       await db.chats.put(finalChat);
       setChats((prev) => prev.map((c) => (c.id === finalChat.id ? finalChat : c)));
     },
-    [activeChat, settings, lorebooks, activePreset, parser, router]
+    [activeChat, settings, lorebooks, activePreset, parser, router, showToast]
   );
 
   const jumpToFloor = useCallback(
@@ -476,4 +500,19 @@ export function useSillytavern() {
     toast,
     showToast,
   };
+}
+
+const SillytavernContext = createContext<ReturnType<typeof useSillytavernLogic> | null>(null);
+
+export function SillytavernProvider({ children }: { children: ReactNode }) {
+  const value = useSillytavernLogic();
+  return createElement(SillytavernContext.Provider, { value }, children);
+}
+
+export function useSillytavern() {
+  const ctx = useContext(SillytavernContext);
+  if (!ctx) {
+    throw new Error('useSillytavern 必须在 <SillytavernProvider> 内使用');
+  }
+  return ctx;
 }

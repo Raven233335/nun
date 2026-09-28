@@ -62,6 +62,13 @@ export function GameView() {
         <button onClick={() => setHistoryOpen(true)}>
           ☰ 历史<Badge count={messageCount} />
         </button>
+        <button
+          onClick={() =>
+            st.createChat(`${st.settings?.characterName ?? 'AI'} - 新对话 ${st.chats.length + 1}`)
+          }
+        >
+          ＋ 新对话
+        </button>
         <button onClick={() => st.openSettings()}>⚙ 设置</button>
         <button onClick={() => st.openLorebooks()}>
           📖 世界书<Badge count={lorebookCount} />
